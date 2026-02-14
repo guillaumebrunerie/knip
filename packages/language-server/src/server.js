@@ -47,7 +47,7 @@ const toPosix = value => value.split(path.sep).join(path.posix.sep);
 /**
  * @import { Issues, Rules } from 'knip/session';
  * @import { Connection, Diagnostic, CodeAction } from 'vscode-languageserver';
- * @import { CodeActionParams, DidChangeWatchedFilesParams } from 'vscode-languageserver';
+ * @import { CodeActionParams, DidChangeWatchedFilesParams, TextDocumentChangeEvent } from 'vscode-languageserver';
  * @import { Config, IssuesByUri } from './types.js';
  *
  * @typedef {import('knip/session').Session} Session
@@ -157,7 +157,9 @@ export class LanguageServer {
 
     this.connection.onCodeAction(params => this.handleCodeAction(params));
 
-    this.connection.onDidChangeWatchedFiles(params => this.handleFileChanges(params));
+    this.connection.onDidChangeWatchedFiles(params => this.handleDidChangeWatchedFiles(params));
+
+    this.documents.onDidSave(params => this.handleDidSave(params));
   }
 
   /** @returns {Promise<Config>} */
@@ -257,7 +259,7 @@ export class LanguageServer {
    * @param {DidChangeWatchedFilesParams} params
    * @return {Promise<void>}
    */
-  async handleFileChanges(params) {
+  async handleDidChangeWatchedFiles(params) {
     this.fileCache = undefined;
     this.packageJsonCache = undefined;
     if (!this.session) return;
@@ -276,6 +278,26 @@ export class LanguageServer {
       changes.push({ type, filePath });
     }
 
+    await this.handleFileChanges(changes);
+  }
+
+  /**
+   * @param {TextDocumentChangeEvent<TextDocument>} params
+   * @return {Promise<void>}
+   */
+  async handleDidSave(params) {
+    this.fileCache = undefined;
+    this.packageJsonCache = undefined;
+    if (!this.session) return;
+
+    await this.handleFileChanges([{ type: 'modified', filePath: fileURLToPath(params.document.uri) }]);
+  }
+
+  /**
+   * @param {{ type: "added" | "deleted" | "modified"; filePath: string }[]} changes
+   * @return {Promise<void>}
+   */
+  async handleFileChanges(changes) {
     if (changes.length === 0) return;
 
     const result = await this.session.handleFileChanges(changes);
